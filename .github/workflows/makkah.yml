@@ -22,10 +22,10 @@ jobs:
             U=$(curl -fsS https://aloula.faulio.com/api/v1.1/channels/7/player | jq -r .streams.hls) || U=""
             echo "url ok: ${#U}"
             if [ -n "$U" ] && [ "$U" != "null" ]; then
-              ffmpeg -nostdin -loglevel info -stats -stats_period 15 -fflags +genpts+discardcorrupt -i "$U" -map 0:v:0 -map 0:a:0 \
+              ffmpeg -nostdin -loglevel info -stats -stats_period 15 -re -live_start_index -3 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -i "$U" -map 0:v:0 -map 0:a:0 \
                 -vf scale=640:360,fps=25 -c:v libx264 -preset ultrafast -b:v 500k -maxrate 600k -bufsize 1200k -g 50 -pix_fmt yuv420p \
                 -c:a aac -b:a 64k -ar 44100 -ac 2 -flvflags no_duration_filesize -f flv "$RTMP" 2>&1 | sed 's#rtmps\?://[^ ]*#RTMP#g' | tail -n +1 || true
             fi
             echo "ffmpeg exited, retry"
-            sleep 5
+            sleep 2
           done
