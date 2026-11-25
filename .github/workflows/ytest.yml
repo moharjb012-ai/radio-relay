@@ -16,10 +16,11 @@ jobs:
           curl -s http://127.0.0.1:4416/ping || true
       - name: Try youtube
         run: |
-          for c in "" "player_client=mweb" "player_client=web"; do
-            echo "== client: $c"
-            yt-dlp --no-warnings ${c:+--extractor-args "youtube:$c"} -f "bv*[height<=480]+ba/b[height<=480]" --print "%(id)s %(format_id)s %(height)s" "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -3 | cut -c1-200
+          for v in dQw4w9WgXcQ W6XyXQJQVTU DwSJyWAdAJQ; do
+            echo "== $v"
+            yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --print "%(id)s %(format_id)s %(height)s %(availability)s" -s "https://www.youtube.com/watch?v=$v" 2>&1 | tail -2 | cut -c1-200
           done
-          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --download-sections "*0-10" -o t.mp4 "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -3 | cut -c1-200
+          echo "== playlist"
+          yt-dlp --no-warnings --flat-playlist --playlist-items 19-20 --print "%(playlist_index)s %(id)s %(availability)s" "https://youtube.com/playlist?list=PLgaTRTylCbZDo3NyLb7i_NYIyhIKp-Kcq" 2>&1 | tail -3 | cut -c1-200
+          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --download-sections "*0-10" -o t.mp4 "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1 | tail -2 | cut -c1-200
           ls -l t.mp4 || true
-          tail -5 bg.log
