@@ -1,8 +1,10 @@
 name: makkah
 on:
   schedule:
-    - cron: '30 */6 * * *'
+    - cron: '30 */4 * * *'
   workflow_dispatch:
+permissions:
+  actions: write
 concurrency:
   group: makkah
   cancel-in-progress: false
@@ -17,7 +19,7 @@ jobs:
         env:
           RTMP: ${{ secrets.RTMP_URL_MAKKAH }}
         run: |
-          end=$((SECONDS+21000))
+          end=$((SECONDS+14400))
           while [ $SECONDS -lt $end ]; do
             U=$(curl -fsS https://aloula.faulio.com/api/v1.1/channels/7/player | jq -r .streams.hls) || U=""
             echo "url ok: ${#U}"
@@ -29,3 +31,8 @@ jobs:
             echo "ffmpeg exited, retry"
             sleep 2
           done
+      - name: Relaunch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run makkah.yml --repo ${{ github.repository }}
