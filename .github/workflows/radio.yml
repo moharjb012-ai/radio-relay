@@ -1,8 +1,10 @@
 name: radio
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */4 * * *'
   workflow_dispatch:
+permissions:
+  actions: write
 concurrency:
   group: radio
   cancel-in-progress: false
@@ -17,7 +19,7 @@ jobs:
         env:
           RTMP: ${{ secrets.RTMP_URL }}
         run: |
-          end=$((SECONDS+21000))
+          end=$((SECONDS+14400))
           while [ $SECONDS -lt $end ]; do
             ffmpeg -nostats -loglevel warning -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
               -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 \
@@ -26,3 +28,8 @@ jobs:
               -c:a aac -b:a 64k -ar 44100 -ac 2 -f flv "$RTMP" || true
             sleep 5
           done
+      - name: Relaunch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run radio.yml --repo ${{ github.repository }}
