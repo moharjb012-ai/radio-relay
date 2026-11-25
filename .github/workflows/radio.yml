@@ -21,7 +21,7 @@ jobs:
         run: |
           end=$((SECONDS+14400))
           while [ $SECONDS -lt $end ]; do
-            ffmpeg -nostats -loglevel warning -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
+            timeout $((end-SECONDS)) ffmpeg -nostats -loglevel warning -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
               -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 \
               -i "http://n12.radiojar.com/8s5u5tpdtwzuv" -map 0:v -map 1:a \
               -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 \
