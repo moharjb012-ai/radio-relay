@@ -1,0 +1,22 @@
+name: watchdog
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  actions: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restart any stopped stream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+        run: |
+          for wf in makkah.yml radio.yml; do
+            n=$(gh run list --repo "$R" --workflow "$wf" --limit 10 --json status --jq '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="pending" or .status=="waiting")] | length')
+            echo "$wf active runs: $n"
+            if [ "$n" = "0" ]; then gh workflow run "$wf" --repo "$R"; echo "dispatched $wf"; fi
+          done
