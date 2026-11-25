@@ -22,11 +22,11 @@ jobs:
           end=$((SECONDS+14400))
           while [ $SECONDS -lt $end ]; do
             timeout $((end-SECONDS)) ffmpeg -nostats -loglevel warning -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
-              -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_delay_max 10 -rw_timeout 30000000 -thread_queue_size 2048 \
+              -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 \
               -i "http://n12.radiojar.com/8s5u5tpdtwzuv" -map 0:v -map 1:a \
-              -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 -keyint_min 10 -sc_threshold 0 -bf 0 \
-              -af aresample=async=1000:first_pts=0 -c:a aac -b:a 64k -ar 44100 -ac 2 -flvflags no_duration_filesize -f flv "$RTMP" || true
-            sleep 2
+              -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 \
+              -c:a aac -b:a 64k -ar 44100 -ac 2 -f flv "$RTMP" || true
+            sleep 5
           done
       - name: Relaunch
         if: always()
