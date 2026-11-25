@@ -1,0 +1,15 @@
+name: ytest
+on:
+  workflow_dispatch:
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Try youtube
+        run: |
+          pip install -q -U yt-dlp 2>&1 | tail -1
+          yt-dlp --version
+          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --print "%(id)s %(format_id)s %(height)s %(filesize_approx)s" "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -5
+          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --download-sections "*0-10" -o t.mp4 "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -5
+          ls -l t.mp4 || true
