@@ -4,12 +4,22 @@ on:
 jobs:
   t:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
+      - name: Setup helper
+        run: |
+          pip install -q -U yt-dlp bgutil-ytdlp-pot-provider 2>&1 | tail -2
+          git clone --depth 1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git bg
+          cd bg/server && npm ci --silent 2>&1 | tail -2 && npx tsc 2>&1 | tail -3
+          (node build/main.js > ../../bg.log 2>&1 &)
+          sleep 5
+          curl -s http://127.0.0.1:4416/ping || true
       - name: Try youtube
         run: |
-          pip install -q -U yt-dlp 2>&1 | tail -1
-          yt-dlp --version
-          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --print "%(id)s %(format_id)s %(height)s %(filesize_approx)s" "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -5
-          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --download-sections "*0-10" -o t.mp4 "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -5
+          for c in "" "player_client=mweb" "player_client=web"; do
+            echo "== client: $c"
+            yt-dlp --no-warnings ${c:+--extractor-args "youtube:$c"} -f "bv*[height<=480]+ba/b[height<=480]" --print "%(id)s %(format_id)s %(height)s" "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -3 | cut -c1-200
+          done
+          yt-dlp --no-warnings -f "bv*[height<=480]+ba/b[height<=480]" --download-sections "*0-10" -o t.mp4 "https://www.youtube.com/watch?v=W6XyXQJQVTU" 2>&1 | tail -3 | cut -c1-200
           ls -l t.mp4 || true
+          tail -5 bg.log
