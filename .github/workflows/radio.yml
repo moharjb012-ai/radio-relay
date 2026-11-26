@@ -8,6 +8,10 @@ on:
         description: 'epoch seconds when this run takes over the stream (empty = watchdog start)'
         required: false
         default: ''
+      mode:
+        description: 'audio = audio-only push, video = black 1fps frame + audio'
+        required: false
+        default: 'video'
 permissions:
   actions: write
 jobs:
@@ -44,6 +48,7 @@ jobs:
           RTMP: ${{ secrets.RTMP_URL }}
           GH_TOKEN: ${{ github.token }}
           START_AT: ${{ inputs.start_at }}
+          MODE_IN: ${{ inputs.mode }}
         run: |
           now=$(date +%s)
           start=${START_AT:-$now}
@@ -53,19 +58,25 @@ jobs:
           (
             d=$((END-600-$(date +%s)))
             [ "$d" -gt 0 ] && sleep "$d"
-            if gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
+            if gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END" -f mode="$(cat /tmp/mode 2>/dev/null || echo video)"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
           ) &
+          COMMON=(-nostdin -stats -stats_period 30 -loglevel info)
+          SRC=(-reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_delay_max 10 -rw_timeout 15000000 -re -i "http://n12.radiojar.com/8s5u5tpdtwzuv")
+          AF="aresample=async=1:first_pts=0,volume=10dB,alimiter=limit=0.9"
+          AUDIO=("${COMMON[@]}" "${SRC[@]}" -vn -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
+          VIDEO=("${COMMON[@]}" -f lavfi -i color=c=black:s=640x360:r=1 -thread_queue_size 1024 "${SRC[@]}" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -tune stillimage -crf 45 -maxrate 10k -bufsize 20k -pix_fmt yuv420p -g 2 -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
+          MODE=${MODE_IN:-video}
           FAIL=0
           DEAD_SINCE=0
           while [ "$(date +%s)" -lt "$END" ]; do
+            if [ "$MODE" = audio ] && [ "$FAIL" -ge 2 ]; then MODE=video; echo "FALLBACK: audio-only failed twice, switching to black-frame video"; fi
+            echo "$MODE" > /tmp/mode
+            if [ "$MODE" = audio ]; then FFARGS=("${AUDIO[@]}"); else FFARGS=("${VIDEO[@]}"); fi
+            echo "mode=$MODE"
             T0=$(date +%s)
             rm -f /tmp/prog.txt
             (
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -nostats -loglevel info -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
-                -reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_delay_max 10 -rw_timeout 15000000 \
-                -i "http://n12.radiojar.com/8s5u5tpdtwzuv" -map 0:v -map 1:a \
-                -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 \
-                -af "volume=10dB,alimiter=limit=0.9" -c:a aac -b:a 64k -ar 44100 -ac 2 -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed 's#rtmps\?://[^ ]*#RTMP#g'
+              timeout $((END-$(date +%s))) ffmpeg "${FFARGS[@]}" -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed 's#rtmps\?://[^ ]*#RTMP#g'
             ) &
             FP=$!
             prev=""
@@ -98,4 +109,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ ! -f /tmp/handoff_sent ]; then gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$(date +%s)"; fi
+          if [ ! -f /tmp/handoff_sent ]; then gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$(date +%s)" -f mode="$(cat /tmp/mode 2>/dev/null || echo video)"; fi
