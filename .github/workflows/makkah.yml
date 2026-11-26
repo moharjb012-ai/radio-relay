@@ -58,6 +58,7 @@ jobs:
             if gh workflow run makkah.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
           ) &
           FAIL=0
+          HB=0
           DEAD_SINCE=0
           while [ "$(date +%s)" -lt "$END" ]; do
             U=$(curl -fsS https://aloula.faulio.com/api/v1.1/channels/7/player | jq -r .streams.hls) || U=""
@@ -69,15 +70,17 @@ jobs:
             T0=$(date +%s)
             rm -f /tmp/prog.txt
             (
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 15 -re -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -i "$U" -map 0:p:1 \
-                -vf scale=640:360,fps=25 -c:v libx264 -preset ultrafast -b:v 500k -maxrate 600k -bufsize 1200k -g 50 -pix_fmt yuv420p \
-                -c:a aac -b:a 64k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed 's#rtmps\?://[^ ]*#RTMP#g'
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -i "$U" -map 0:p:2 \
+                -vf fps=25 -c:v libx264 -preset ultrafast -tune zerolatency -b:v 400k -maxrate 450k -bufsize 900k -g 50 -pix_fmt yuv420p \
+                -c:a copy -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
             ) &
             FP=$!
             prev=""
             stall=0
             while kill -0 $FP 2>/dev/null; do
               sleep 5
+              HB=$((HB+1))
+              if [ $((HB % 12)) -eq 0 ]; then echo "health: $(grep -E '^(speed|drop_frames|out_time)=' /tmp/prog.txt 2>/dev/null | tail -3 | tr '\n' ' ')"; fi
               cur=$(grep -E '^out_time_us=' /tmp/prog.txt 2>/dev/null | tail -1) || true
               if [ "$cur" = "$prev" ] && [ $(( $(date +%s) - T0 )) -gt 45 ]; then stall=$((stall+5)); else stall=0; fi
               prev="$cur"
