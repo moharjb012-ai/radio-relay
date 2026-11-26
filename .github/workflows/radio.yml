@@ -67,6 +67,7 @@ jobs:
           VIDEO=("${COMMON[@]}" -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 "${SRC[@]}" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
           MODE=${MODE_IN:-video}
           FAIL=0
+          HB=0
           DEAD_SINCE=0
           while [ "$(date +%s)" -lt "$END" ]; do
             if [ "$MODE" = audio ] && [ "$FAIL" -ge 2 ]; then MODE=video; echo "FALLBACK: audio-only failed twice, switching to black-frame video"; fi
@@ -76,13 +77,15 @@ jobs:
             T0=$(date +%s)
             rm -f /tmp/prog.txt
             (
-              timeout $((END-$(date +%s))) ffmpeg "${FFARGS[@]}" -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed 's#rtmps\?://[^ ]*#RTMP#g'
+              timeout $((END-$(date +%s))) ffmpeg "${FFARGS[@]}" -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
             ) &
             FP=$!
             prev=""
             stall=0
             while kill -0 $FP 2>/dev/null; do
               sleep 5
+              HB=$((HB+1))
+              if [ $((HB % 12)) -eq 0 ]; then echo "health: $(grep -E '^(speed|drop_frames|dup_frames|out_time)=' /tmp/prog.txt 2>/dev/null | tail -4 | tr '\n' ' ')"; fi
               cur=$(grep -E '^out_time_us=' /tmp/prog.txt 2>/dev/null | tail -1) || true
               if [ "$cur" = "$prev" ] && [ $(( $(date +%s) - T0 )) -gt 45 ]; then stall=$((stall+5)); else stall=0; fi
               prev="$cur"
