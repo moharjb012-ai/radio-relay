@@ -1,0 +1,108 @@
+name: sunnah
+on:
+  workflow_dispatch:
+    inputs:
+      start_at:
+        description: 'epoch seconds when this run takes over the stream (empty = watchdog start)'
+        required: false
+        default: ''
+permissions:
+  actions: write
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - name: Guard
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START_AT: ${{ inputs.start_at }}
+        run: |
+          if [ -z "$START_AT" ]; then
+            n=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sunnah.yml --status in_progress --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            q=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sunnah.yml --status queued --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            echo "other in_progress=$n queued=$q"
+            if [ "${n:-1}" -gt 0 ] || [ "${q:-1}" -gt 0 ]; then echo "run=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          fi
+          echo "run=yes" >> "$GITHUB_OUTPUT"
+      - name: Install ffmpeg
+        if: steps.guard.outputs.run == 'yes'
+        run: |
+          ok=0
+          for i in 1 2 3; do
+            if timeout 150 sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install -y -qq ffmpeg; then ok=1; break; fi
+            sudo apt-get update -qq || true
+          done
+          command -v ffmpeg >/dev/null && ok=1
+          if [ "$ok" != 1 ]; then
+            curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz | tar -xJ && sudo cp ffmpeg-*-static/ffmpeg /usr/local/bin/ffmpeg
+          fi
+      - name: Stream
+        if: steps.guard.outputs.run == 'yes'
+        env:
+          RTMP: ${{ secrets.RTMP_URL_SUNNAH }}
+          GH_TOKEN: ${{ github.token }}
+          START_AT: ${{ inputs.start_at }}
+        run: |
+          now=$(date +%s)
+          start=${START_AT:-$now}
+          while [ "$(date +%s)" -lt "$start" ]; do sleep 1; done
+          END=$((start+14400))
+          rm -f /tmp/handoff_sent
+          (
+            d=$((END-600-$(date +%s)))
+            [ "$d" -gt 0 ] && sleep "$d"
+            if gh workflow run sunnah.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
+          ) &
+          FAIL=0
+          HB=0
+          DEAD_SINCE=0
+          while [ "$(date +%s)" -lt "$END" ]; do
+            U=$(curl -fsS https://aloula.faulio.com/api/v1.1/channels/6/player | jq -r .streams.hls) || U=""
+            if [ -n "$U" ] && [ "$U" != "null" ]; then
+              if [ $((FAIL % 4)) -ne 3 ]; then U=$(echo "$U" | sed 's#playlist_dvr.m3u8#playlist.m3u8#'); fi
+            else
+              echo "no url, retry"; FAIL=$((FAIL+1)); sleep 3; continue
+            fi
+            T0=$(date +%s)
+            rm -f /tmp/prog.txt
+            (
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -i "$U" -map 0:p:2 \
+                -vf fps=25 -c:v libx264 -preset ultrafast -tune zerolatency -b:v 400k -maxrate 450k -bufsize 900k -g 50 -pix_fmt yuv420p \
+                -c:a copy -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
+            ) &
+            FP=$!
+            prev=""
+            stall=0
+            while kill -0 $FP 2>/dev/null; do
+              sleep 5
+              HB=$((HB+1))
+              if [ $((HB % 12)) -eq 0 ]; then echo "health: $(grep -E '^(speed|drop_frames|out_time)=' /tmp/prog.txt 2>/dev/null | tail -3 | tr '\n' ' ')"; fi
+              cur=$(grep -E '^out_time_us=' /tmp/prog.txt 2>/dev/null | tail -1) || true
+              if [ "$cur" = "$prev" ] && [ $(( $(date +%s) - T0 )) -gt 45 ]; then stall=$((stall+5)); else stall=0; fi
+              prev="$cur"
+              if [ "$stall" -ge 30 ]; then echo "health: ffmpeg stalled 30s, restarting it"; pkill -x ffmpeg || true; stall=0; fi
+            done
+            wait $FP || true
+            RUN=$(( $(date +%s) - T0 ))
+            if [ "$RUN" -lt 20 ]; then
+              FAIL=$((FAIL+1))
+              [ "$DEAD_SINCE" -eq 0 ] && DEAD_SINCE=$(date +%s)
+            else
+              FAIL=0
+              DEAD_SINCE=0
+            fi
+            echo "ffmpeg exited after ${RUN}s (fail streak $FAIL), retry"
+            if [ "$DEAD_SINCE" -ne 0 ] && [ $(( $(date +%s) - DEAD_SINCE )) -gt 900 ]; then
+              echo "ALERT: no output for 15 min, failing this run so GitHub notifies"
+              exit 1
+            fi
+            sleep 2
+          done
+      - name: Relaunch if no handoff
+        if: ${{ !cancelled() && steps.guard.outputs.run == 'yes' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f /tmp/handoff_sent ]; then gh workflow run sunnah.yml --repo "$GITHUB_REPOSITORY" -f start_at="$(date +%s)"; fi
