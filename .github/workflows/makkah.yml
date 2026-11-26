@@ -60,7 +60,7 @@ jobs:
             sleep 2
           done
       - name: Relaunch if no handoff
-        if: always() && steps.guard.outputs.run == 'yes'
+        if: ${{ !cancelled() && steps.guard.outputs.run == 'yes' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
