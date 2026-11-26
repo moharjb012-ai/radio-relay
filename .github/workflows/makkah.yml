@@ -68,10 +68,10 @@ jobs:
               echo "no url, retry"; FAIL=$((FAIL+1)); sleep 3; continue
             fi
             T0=$(date +%s)
-            ffmpeg -nostdin -loglevel error -y -i "$U" -map 0:p:2:v -frames:v 1 -vf scale=640:360 /tmp/still.png || ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
+            ffmpeg -nostdin -loglevel error -y -i "$U" -map 0:p:0:v -frames:v 1 -vf scale=1280:720 /tmp/still.png || ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
             rm -f /tmp/prog.txt
             (
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -live_start_index -3 -thread_queue_size 4096 -re -i "$U" -re -loop 1 -framerate 5 -i /tmp/still.png -map 1:v -map 0:p:2:a -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -g 10 -pix_fmt yuv420p -profile:v baseline -af aresample=async=1:first_pts=0 -c:a aac -b:a 64k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -live_start_index -1 -thread_queue_size 4096 -re -i "$U" -loop 1 -framerate 5 -i /tmp/still.png -map 1:v -map 0:p:2:a -c:v libx264 -preset veryfast -tune stillimage -crf 23 -maxrate 900k -bufsize 1800k -g 10 -pix_fmt yuv420p -profile:v main -af aresample=async=1:first_pts=0 -c:a aac -b:a 128k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
             ) &
             FP=$!
             prev=""
