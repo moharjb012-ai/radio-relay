@@ -37,7 +37,7 @@ jobs:
         run: |
           ok=0
           for i in 1 2 3; do
-            if timeout 150 sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install -y -qq ffmpeg; then ok=1; break; fi
+            if timeout 150 sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 install -y -qq --no-install-recommends ffmpeg; then ok=1; break; fi
             sudo apt-get update -qq || true
           done
           command -v ffmpeg >/dev/null && ok=1
@@ -61,10 +61,10 @@ jobs:
             if gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END" -f mode="$(cat /tmp/mode 2>/dev/null || echo video)"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
           ) &
           COMMON=(-nostdin -stats -stats_period 30 -loglevel info)
-          SRC=(-reconnect 1 -reconnect_streamed 1 -reconnect_at_eof 1 -reconnect_delay_max 10 -rw_timeout 15000000 -re -i "http://n12.radiojar.com/8s5u5tpdtwzuv")
-          AF="aresample=async=1:first_pts=0,volume=10dB,alimiter=limit=0.9"
+          SRC=(-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 -i "http://n12.radiojar.com/8s5u5tpdtwzuv")
+          AF="volume=10dB,alimiter=limit=0.9"
           AUDIO=("${COMMON[@]}" "${SRC[@]}" -vn -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
-          VIDEO=("${COMMON[@]}" -f lavfi -i color=c=black:s=640x360:r=1 -thread_queue_size 1024 "${SRC[@]}" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -tune stillimage -crf 45 -maxrate 10k -bufsize 20k -pix_fmt yuv420p -g 2 -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
+          VIDEO=("${COMMON[@]}" -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 "${SRC[@]}" -map 0:v -map 1:a -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 -af "$AF" -c:a aac -b:a 64k -ar 44100 -ac 2)
           MODE=${MODE_IN:-video}
           FAIL=0
           DEAD_SINCE=0
