@@ -1,35 +1,64 @@
 name: radio
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
+    inputs:
+      start_at:
+        description: 'epoch seconds when this run takes over the stream (empty = watchdog start)'
+        required: false
+        default: ''
 permissions:
   actions: write
-concurrency:
-  group: radio
-  cancel-in-progress: false
 jobs:
   stream:
     runs-on: ubuntu-latest
     timeout-minutes: 358
     steps:
+      - name: Guard
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START_AT: ${{ inputs.start_at }}
+        run: |
+          if [ -z "$START_AT" ]; then
+            n=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow radio.yml --status in_progress --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            q=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow radio.yml --status queued --json databaseId --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID)] | length")
+            echo "other in_progress=$n queued=$q"
+            if [ "${n:-1}" -gt 0 ] || [ "${q:-1}" -gt 0 ]; then echo "run=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          fi
+          echo "run=yes" >> "$GITHUB_OUTPUT"
       - name: Install ffmpeg
+        if: steps.guard.outputs.run == 'yes'
         run: sudo apt-get install -y -qq ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - name: Stream
+        if: steps.guard.outputs.run == 'yes'
         env:
           RTMP: ${{ secrets.RTMP_URL }}
+          GH_TOKEN: ${{ github.token }}
+          START_AT: ${{ inputs.start_at }}
         run: |
-          end=$((SECONDS+14400))
-          while [ $SECONDS -lt $end ]; do
-            timeout $((end-SECONDS)) ffmpeg -nostats -loglevel info -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
+          now=$(date +%s)
+          start=${START_AT:-$now}
+          while [ "$(date +%s)" -lt "$start" ]; do sleep 1; done
+          END=$((start+14400))
+          rm -f /tmp/handoff_sent
+          (
+            d=$((END-600-$(date +%s)))
+            [ "$d" -gt 0 ] && sleep "$d"
+            if gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$END"; then touch /tmp/handoff_sent; echo "handoff dispatched start_at=$END"; fi
+          ) &
+          while [ "$(date +%s)" -lt "$END" ]; do
+            timeout $((END-$(date +%s))) ffmpeg -nostats -loglevel info -re -f lavfi -i color=c=0x0b3d2e:s=640x360:r=5 \
               -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 10 \
               -i "http://n12.radiojar.com/8s5u5tpdtwzuv" -map 0:v -map 1:a \
               -c:v libx264 -preset ultrafast -tune stillimage -crf 35 -maxrate 50k -bufsize 100k -pix_fmt yuv420p -g 10 \
               -af "volume=10dB,alimiter=limit=0.9" -c:a aac -b:a 64k -ar 44100 -ac 2 -f flv "$RTMP" || true
-            sleep 5
+            sleep 2
           done
-      - name: Relaunch
-        if: always()
+      - name: Relaunch if no handoff
+        if: always() && steps.guard.outputs.run == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run radio.yml --repo ${{ github.repository }}
+        run: |
+          if [ ! -f /tmp/handoff_sent ]; then gh workflow run radio.yml --repo "$GITHUB_REPOSITORY" -f start_at="$(date +%s)"; fi
