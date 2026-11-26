@@ -1,7 +1,5 @@
 name: makkah
 on:
-  schedule:
-    - cron: '10,30,50 * * * *'
   workflow_dispatch:
     inputs:
       start_at:
@@ -68,14 +66,14 @@ jobs:
               echo "no url, retry"; FAIL=$((FAIL+1)); sleep 3; continue
             fi
             T0=$(date +%s)
-            ffmpeg -nostdin -loglevel error -y -i "$U" -map 0:p:0:v -frames:v 1 -vf scale=640:360 /tmp/still.png || ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
+            ffmpeg -nostdin -loglevel error -y -i "$U" -map 0:p:2:v -frames:v 1 -vf scale=640:360 /tmp/still.png || ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
             rm -f /tmp/prog.txt
             (
               rm -f /tmp/buf.ts
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel warning -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -live_start_index -1 -i "$U" -map 0:p:2:v -map 0:p:2:a -c copy -f mpegts /tmp/buf.ts &
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel error -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -i "$U" -map 0:p:2:a -c copy -f mpegts /tmp/buf.ts &
               P1=$!
-              sleep 20
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -re -follow 1 -rw_timeout 20000000 -fflags +genpts -i /tmp/buf.ts -map 0:v:0 -map 0:a:0 -vf "fps=15,scale=640:360" -c:v libx264 -preset veryfast -b:v 280k -maxrate 320k -bufsize 640k -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p -profile:v baseline -af aresample=async=1:first_pts=0 -c:a aac -b:a 96k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
+              sleep 15
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -re -follow 1 -rw_timeout 20000000 -fflags +genpts -i /tmp/buf.ts -re -loop 1 -framerate 5 -i /tmp/still.png -map 1:v -map 0:a -c:v libx264 -preset ultrafast -tune stillimage -crf 30 -maxrate 150k -bufsize 300k -g 10 -pix_fmt yuv420p -af aresample=async=1:first_pts=0 -c:a aac -b:a 128k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
               kill $P1 2>/dev/null || true
             ) &
             FP=$!
