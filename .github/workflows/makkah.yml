@@ -71,7 +71,12 @@ jobs:
             ffmpeg -nostdin -loglevel error -y -i "$U" -map 0:p:0:v -frames:v 1 -vf scale=640:360 /tmp/still.png || ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
             rm -f /tmp/prog.txt
             (
-              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -live_start_index -1 -thread_queue_size 4096 -re -i "$U" -map 0:p:2:v -map 0:p:2:a -vf "fps=15,scale=640:360" -c:v libx264 -preset veryfast -b:v 400k -maxrate 450k -bufsize 900k -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p -profile:v baseline -af aresample=async=1:first_pts=0 -c:a aac -b:a 96k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
+              rm -f /tmp/buf.ts
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel warning -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -rw_timeout 15000000 -fflags +genpts+discardcorrupt -live_start_index -1 -i "$U" -map 0:p:2:v -map 0:p:2:a -c copy -f mpegts /tmp/buf.ts &
+              P1=$!
+              sleep 20
+              timeout $((END-$(date +%s))) ffmpeg -nostdin -loglevel info -stats -stats_period 30 -re -follow 1 -rw_timeout 20000000 -fflags +genpts -i /tmp/buf.ts -map 0:v:0 -map 0:a:0 -vf "fps=15,scale=640:360" -c:v libx264 -preset veryfast -b:v 280k -maxrate 320k -bufsize 640k -g 30 -keyint_min 30 -sc_threshold 0 -pix_fmt yuv420p -profile:v baseline -af aresample=async=1:first_pts=0 -c:a aac -b:a 96k -ar 44100 -ac 2 -flvflags no_duration_filesize -progress /tmp/prog.txt -f flv "$RTMP" 2>&1 | sed -u 's#rtmps\?://[^ ]*#RTMP#g'
+              kill $P1 2>/dev/null || true
             ) &
             FP=$!
             prev=""
