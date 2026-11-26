@@ -59,7 +59,7 @@ jobs:
           HB=0
           DEAD_SINCE=0
           while [ "$(date +%s)" -lt "$END" ]; do
-            U="https://win.holol.com/live/quran/playlist.m3u8"
+            U="https://win.holol.com/live/sunnah/playlist.m3u8"
             T0=$(date +%s)
             ffmpeg -nostdin -loglevel error -y -f lavfi -i color=c=0x0b3d2e:s=640x360 -frames:v 1 /tmp/still.png
             rm -f /tmp/prog.txt
